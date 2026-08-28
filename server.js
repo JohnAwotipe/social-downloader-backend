@@ -19,7 +19,7 @@ function detectPlatform(url) {
   return 'unknown';
 }
 
-// Map platform to referer for download proxy
+// Map platform to referer
 const REFERERS = {
   youtube: 'https://www.youtube.com/',
   tiktok: 'https://www.tiktok.com/',
@@ -27,6 +27,9 @@ const REFERERS = {
   instagram: 'https://www.instagram.com/',
   twitter: 'https://twitter.com/',
 };
+
+// Browser-like User-Agent
+const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
 
 function formatDuration(seconds) {
   if (!seconds) return 'N/A';
@@ -115,25 +118,33 @@ app.post('/extract', async (req, res) => {
   }
 });
 
-// Download proxy with platform-aware referer
+// Download proxy with platform-aware headers
 app.get('/download', async (req, res) => {
   const videoUrl = req.query.url;
   const platform = req.query.platform || 'unknown';
 
   if (!videoUrl) return res.status(400).json({ error: 'Missing url parameter' });
 
-  // Set referer based on platform
+  // Set headers based on platform
   const referer = REFERERS[platform] || 'https://www.google.com/';
+  const headers = {
+    'User-Agent': USER_AGENT,
+    'Referer': referer,
+    'Accept': 'video/webm,video/mp4,video/*;q=0.9,*/*;q=0.8',
+  };
+
+  // YouTube may require additional headers
+  if (platform === 'youtube') {
+    headers['Accept-Language'] = 'en-US,en;q=0.9';
+    headers['Origin'] = 'https://www.youtube.com';
+  }
 
   try {
     const response = await axios({
       method: 'GET',
       url: videoUrl,
       responseType: 'stream',
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-        'Referer': referer,
-      },
+      headers,
     });
 
     const contentType = response.headers['content-type'] || 'video/mp4';
