@@ -19,6 +19,15 @@ function detectPlatform(url) {
   return 'unknown';
 }
 
+// Map platform to referer for download proxy
+const REFERERS = {
+  youtube: 'https://www.youtube.com/',
+  tiktok: 'https://www.tiktok.com/',
+  facebook: 'https://www.facebook.com/',
+  instagram: 'https://www.instagram.com/',
+  twitter: 'https://twitter.com/',
+};
+
 function formatDuration(seconds) {
   if (!seconds) return 'N/A';
   const h = Math.floor(seconds / 3600);
@@ -43,7 +52,7 @@ function formatSize(bytes) {
   return bytes + ' B';
 }
 
-// Extract endpoint (same as before)
+// Extract endpoint
 app.post('/extract', async (req, res) => {
   const { url } = req.body;
   if (!url) return res.status(400).json({ error: 'Missing url' });
@@ -106,31 +115,33 @@ app.post('/extract', async (req, res) => {
   }
 });
 
-// New download proxy endpoint
+// Download proxy with platform-aware referer
 app.get('/download', async (req, res) => {
   const videoUrl = req.query.url;
+  const platform = req.query.platform || 'unknown';
+
   if (!videoUrl) return res.status(400).json({ error: 'Missing url parameter' });
 
+  // Set referer based on platform
+  const referer = REFERERS[platform] || 'https://www.google.com/';
+
   try {
-    // Fetch the video with a browser-like User-Agent and Referer
     const response = await axios({
       method: 'GET',
       url: videoUrl,
       responseType: 'stream',
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-        'Referer': 'https://www.tiktok.com/', // Adjust based on platform if needed
+        'Referer': referer,
       },
     });
 
-    // Set appropriate headers for file download
     const contentType = response.headers['content-type'] || 'video/mp4';
     const contentLength = response.headers['content-length'];
     res.setHeader('Content-Type', contentType);
     if (contentLength) res.setHeader('Content-Length', contentLength);
     res.setHeader('Content-Disposition', 'attachment; filename="video.mp4"');
 
-    // Pipe the video stream to the client
     response.data.pipe(res);
   } catch (err) {
     console.error('Download proxy error:', err.message);
