@@ -19,7 +19,6 @@ function detectPlatform(url) {
   return 'unknown';
 }
 
-// Format duration (seconds) to "m:ss" or "h:mm:ss"
 function formatDuration(seconds) {
   if (!seconds) return 'N/A';
   const h = Math.floor(seconds / 3600);
@@ -29,7 +28,6 @@ function formatDuration(seconds) {
   return `${m}:${s.toString().padStart(2,'0')}`;
 }
 
-// Format number (views) to "2.7M" etc.
 function formatNumber(num) {
   if (!num) return 'N/A';
   if (num >= 1e6) return (num/1e6).toFixed(1) + 'M';
@@ -37,7 +35,6 @@ function formatNumber(num) {
   return num.toString();
 }
 
-// Format bytes to MB/GB
 function formatSize(bytes) {
   if (!bytes) return 'N/A';
   if (bytes >= 1e9) return (bytes/1e9).toFixed(2) + ' GB';
@@ -46,16 +43,13 @@ function formatSize(bytes) {
   return bytes + ' B';
 }
 
+// Extract endpoint (same as before)
 app.post('/extract', async (req, res) => {
   const { url } = req.body;
-  if (!url) {
-    return res.status(400).json({ error: 'Missing url' });
-  }
+  if (!url) return res.status(400).json({ error: 'Missing url' });
 
   const platform = detectPlatform(url);
-  if (platform === 'unknown') {
-    return res.status(400).json({ error: 'Unsupported platform' });
-  }
+  if (platform === 'unknown') return res.status(400).json({ error: 'Unsupported platform' });
 
   try {
     const options = {
@@ -72,18 +66,13 @@ app.post('/extract', async (req, res) => {
     const response = await axios.request(options);
     const data = response.data;
 
-    // Log raw response for debugging
-    console.log('Raw API response:', JSON.stringify(data, null, 2));
-
-    // Extract fields from response
     const title = data.title || 'Video';
     const duration = formatDuration(data.duration);
     const views = formatNumber(data.statistics?.play_count);
+    const thumbnail = data.thumbnail || '';
 
-    // Build qualities from "medias" array
     const qualities = [];
     if (data.medias && Array.isArray(data.medias)) {
-      // Video options (type: "video")
       data.medias
         .filter(m => m.type === 'video')
         .forEach(m => {
@@ -97,7 +86,6 @@ app.post('/extract', async (req, res) => {
           });
         });
 
-      // Audio option (type: "audio") – optional, you can include it
       data.medias
         .filter(m => m.type === 'audio')
         .forEach(m => {
@@ -109,21 +97,44 @@ app.post('/extract', async (req, res) => {
         });
     }
 
-    if (qualities.length === 0) {
-      return res.status(500).json({ error: 'No media found in API response' });
-    }
+    if (qualities.length === 0) return res.status(500).json({ error: 'No media found' });
 
-    res.json({
-      platform,
-      title,
-      duration,
-      views,
-      qualities,
-    });
-    
+    res.json({ platform, title, duration, views, thumbnail, qualities });
   } catch (err) {
     console.error('API error:', err.message);
     res.status(500).json({ error: `Extraction failed: ${err.message}` });
+  }
+});
+
+// New download proxy endpoint
+app.get('/download', async (req, res) => {
+  const videoUrl = req.query.url;
+  if (!videoUrl) return res.status(400).json({ error: 'Missing url parameter' });
+
+  try {
+    // Fetch the video with a browser-like User-Agent and Referer
+    const response = await axios({
+      method: 'GET',
+      url: videoUrl,
+      responseType: 'stream',
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+        'Referer': 'https://www.tiktok.com/', // Adjust based on platform if needed
+      },
+    });
+
+    // Set appropriate headers for file download
+    const contentType = response.headers['content-type'] || 'video/mp4';
+    const contentLength = response.headers['content-length'];
+    res.setHeader('Content-Type', contentType);
+    if (contentLength) res.setHeader('Content-Length', contentLength);
+    res.setHeader('Content-Disposition', 'attachment; filename="video.mp4"');
+
+    // Pipe the video stream to the client
+    response.data.pipe(res);
+  } catch (err) {
+    console.error('Download proxy error:', err.message);
+    res.status(500).json({ error: 'Failed to fetch video' });
   }
 });
 
